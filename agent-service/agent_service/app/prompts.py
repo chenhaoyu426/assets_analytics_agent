@@ -414,16 +414,18 @@ def build_synthesize_prompt(symbol: str, enriched_data: str, current_date: str, 
     framing = _get_market_framing(market_info, language)
 
     anti_hallucination = (
-        "**CRITICAL: Your knowledge cutoff predates {current_date}. "
-        "Any price, P/E, or metric from your training data is STALE and WRONG. "
-        "You MUST use ONLY the data provided below. "
-        "State exact numbers from the data — never estimate ranges from memory. "
-        "If a number isn't in the data, say 'Not collected'.**"
+        "**CRITICAL — Data Source Rules:**\n"
+        "1. Your training data is STALE. All numbers below come from live sources (Futu, yfinance, EastMoney) or the system's deterministic computation engine.\n"
+        "2. You are a REPORTER, not a calculator. NEVER perform your own calculations (no RSI, no SMA, no volatility, no ratios, no growth rates). "
+        "All computed metrics (RSI, SMA, EMA, volatility, momentum, drawdown, valuation zones) are already provided in the analytics dashboard below — quote them verbatim.\n"
+        "3. If the dashboard says RSI is 59.5, write 'RSI 59.5'. Do NOT recalculate it to 52 or any other number.\n"
+        "4. State exact numbers from the data — never round, estimate ranges, or pull from memory.\n"
+        "5. If a number isn't in the data below, say 'Not collected' — do not compute a substitute.**"
     ).format(current_date=current_date)
 
     return f"""{instruction}
 
-You are a professional financial analyst. Write a comprehensive analysis of {symbol} using ONLY the data collected below. Do not use numbers from your training data.
+You are a professional financial analyst. Write a comprehensive analysis of {symbol} using ONLY the data collected below. You are a reporter summarizing pre-collected data — NEVER calculate anything yourself.
 
 Today is {current_date}.
 
@@ -436,7 +438,9 @@ Today is {current_date}.
 {framing}
 ---
 
-{structure}"""
+{structure}
+
+**FINAL INSTRUCTION: Output ONLY the analysis report itself. Do NOT append a self-review, quality check, meta-commentary, or critique of your own report. Your entire response must be the report and nothing else.**"""
 
 
 TOOL_REGISTRY = """

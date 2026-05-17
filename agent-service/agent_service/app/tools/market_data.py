@@ -1,7 +1,8 @@
 """Tool 1/3: 市场基础数据 (Structured Market Data)
 
-Primary: Futu OpenD — real-time price, volume, valuation, fundamentals, 52W range
-Secondary: yfinance — delayed but comprehensive profile, metrics, index data
+Data source priority by market:
+  CN (China A-Share): EastMoney → Futu OpenD → yfinance
+  HK / US / others:   Futu OpenD → yfinance
 """
 
 from langchain_core.tools import tool
@@ -140,6 +141,10 @@ def _extract_snapshot_fields(code: str, row) -> dict:
         fields["52w_low"] = low52
     div_yield = _vf("dividend_ratio_ttm")
     if div_yield is not None:
+        # Futu returns dividend_ratio_ttm as a percentage (e.g. 1.23 = 1.23%).
+        # Normalize to decimal ratio for consistency with the yfinance path.
+        if div_yield > 1.0:
+            div_yield = div_yield / 100.0
         fields["dividend_yield"] = div_yield
     volume = _vf("volume")
     if volume is not None:
@@ -299,6 +304,12 @@ def _fetch_yfinance_market_data(symbol: str) -> tuple[str, dict]:
         pb = info.get("priceToBook")
         eps = info.get("trailingEps")
         dividend_yield = info.get("dividendYield")
+        # yfinance returns dividendYield in inconsistent formats across markets:
+        # US stocks → decimal ratio (e.g. 0.0043 = 0.43%)
+        # CN/HK stocks → percentage already (e.g. 1.23 = 1.23%)
+        # Sanitize: values > 1.0 are already percentages, divide by 100 to normalize
+        if dividend_yield is not None and dividend_yield > 1.0:
+            dividend_yield = dividend_yield / 100.0
         beta = info.get("beta")
         high_52w = info.get("fiftyTwoWeekHigh")
         low_52w = info.get("fiftyTwoWeekLow")
@@ -431,15 +442,32 @@ def fetch_market_data(symbol: str) -> ToolOutput:
     """市场基础数据 — Structured market data for a ticker.
 
     Fetches price, volume, valuation, fundamentals, and 52-week range data.
-    Also includes a relevant market index for context (S&P 500, Hang Seng, etc.)
-
-    Primary: Futu OpenD (real-time snapshots + basic info)
-    Secondary: yfinance (delayed but comprehensive profile, metrics, index data)
+    Data source priority by market:
+      CN (China A-Share): EastMoney → Futu OpenD → yfinance
+      HK / US / others:   Futu OpenD → yfinance
 
     Args:
         symbol: Ticker symbol (e.g. AAPL, 0700.HK, 300502.SZ)
     """
-    # Primary: Futu OpenD
+    # Detect market region for source routing
+    market_info = detect_market(symbol)
+    region = market_info.get("region", "")
+
+    # CN stocks: EastMoney first (free real-time data)
+    if region == "China A-Share":
+        from agent_service.app.tools.eastmoney_data import _fetch_eastmoney
+        em_result = _fetch_eastmoney(symbol)
+        if em_result:
+            text, fields = em_result
+            return {
+                "text": text,
+                "fields": fields,
+                "source": "eastmoney",
+                "freshness": "realtime",
+                "warnings": [],
+            }
+
+    # HK / US / others: Futu OpenD first
     futu_result = _try_futu(symbol)
     if futu_result:
         text, fields = futu_result
@@ -451,12 +479,17 @@ def fetch_market_data(symbol: str) -> ToolOutput:
             "warnings": [],
         }
 
-    # Secondary: yfinance
+    # Universal fallback: yfinance
     text, fields = _fetch_yfinance_market_data(symbol)
+    warnings: list[str] = []
+    if region == "China A-Share":
+        warnings.append("EastMoney and Futu unavailable — using delayed yfinance data")
+    else:
+        warnings.append("Futu unavailable — using delayed yfinance data")
     return {
         "text": text,
         "fields": fields,
         "source": "yfinance",
         "freshness": "delayed",
-        "warnings": ["Futu unavailable — using delayed yfinance data"],
+        "warnings": warnings,
     }

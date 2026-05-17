@@ -43,7 +43,10 @@ def _infer_tool_meta(tool_name: str, result_text: str, ok: bool, cached: bool = 
     warnings: list[str] = []
 
     if tool_name == "fetch_market_data":
-        if "Futu Real-Time" in result_text:
+        if "EastMoney" in result_text:
+            source = "eastmoney"
+            freshness = "realtime"
+        elif "Futu Real-Time" in result_text:
             source = "futu"
             freshness = "realtime"
         elif "yfinance" in result_text:
@@ -190,19 +193,20 @@ def _extract_fields(tool_name: str, result_text: str) -> dict:
     fields: dict = {}
 
     if tool_name == "fetch_market_data":
+        is_em = "EastMoney" in result_text
         m = re.search(r"Current:\s*([\d.]+)", result_text)
         if m:
             fields["current_price"] = float(m.group(1))
-        m = re.search(r"P/E(?:\s*TTM)?:\s*([\d.]+)", result_text)
+        m = re.search(r"P/E(?:\s*\(Dynamic\))?(?:\s*TTM)?:\s*([\d.]+)", result_text)
         if m:
             fields["pe"] = float(m.group(1))
         m = re.search(r"P/B:\s*([\d.]+)", result_text)
         if m:
             fields["pb"] = float(m.group(1))
-        m = re.search(r"EPS:\s*\$?([\d.]+)", result_text)
+        m = re.search(r"EPS:\s*[¥\$]?([\d.]+)", result_text)
         if m:
             fields["eps"] = float(m.group(1))
-        m = re.search(r"Market Cap:\s*\$?([\d.]+[TBM]?)", result_text)
+        m = re.search(r"Market Cap:\s*[¥\$]?([\d.]+[TBM亿]?)", result_text)
         if m:
             fields["market_cap"] = m.group(1)
         m = re.search(r"Sector:\s*(\S.*?)(?:\s*[|]|\s*\n)", result_text)
@@ -211,12 +215,19 @@ def _extract_fields(tool_name: str, result_text: str) -> dict:
         m = re.search(r"Country:\s*(\S+)", result_text)
         if m:
             fields["country"] = m.group(1).strip()
-        fields["source"] = "futu" if "Futu Real-Time" in result_text else "yfinance"
+        if is_em:
+            fields["source"] = "eastmoney"
+        elif "Futu Real-Time" in result_text:
+            fields["source"] = "futu"
+        else:
+            fields["source"] = "yfinance"
         m = re.search(r"As of:\s*(\S.+)", result_text)
         if m:
             fields["as_of"] = m.group(1).strip()
         # Currency extraction
-        if "Futu Real-Time" in result_text:
+        if is_em:
+            fields["currency"] = "CNY"
+        elif "Futu Real-Time" in result_text:
             m = re.search(r"\(([A-Z]{2})\.\d+\)", result_text)
             if m:
                 prefix = m.group(1)
@@ -698,12 +709,13 @@ def execute_tools_node(state: AgentState) -> dict:
                     step["message"] = f"Completed: {tool_name}"
                     break
 
-        tool_results.append(_make_tool_result(
+        tr = _make_tool_result(
             tool_name, args, result_text, ok, call_id=cid,
             fields=fields, source=source, freshness=freshness, warnings=warnings,
-        ))
+        )
+        tool_results.append(tr)
 
-        messages.append(HumanMessage(content=f"Tool: {tool_name}\nArgs: {json.dumps(args)}\nResult: {summary}"))
+        messages.append(HumanMessage(content=f"Tool: {tool_name}\nArgs: {json.dumps(args)}\nResult: {tr['summary']}"))
 
     # Merge with previously accumulated results (e.g. pre-fetched cached data)
     accumulated = list(state.get("tool_results", []))
