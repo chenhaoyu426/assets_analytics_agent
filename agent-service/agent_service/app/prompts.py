@@ -46,23 +46,6 @@ or
 
 Only return the JSON object, nothing else."""
 
-SYNTHESIZE_PROMPT = """You are a professional financial analyst. Write a comprehensive analysis of {symbol} based on the data collected below.
-
-Today is {current_date}.
-
-{tool_results_full}
-
-Structure your analysis with:
-1. **Overview** — Brief summary of the company and current situation (mention the analysis date)
-2. **Key Metrics Analysis** — What the numbers mean
-3. **Technical Analysis** — Trend and momentum assessment (if data available)
-4. **Recent News Impact** — How recent news may affect the asset
-5. **Risks & Opportunities**
-6. **Outlook** — Short to medium term outlook
-
-Be objective. Highlight both positives and negatives. Do not give specific buy/sell recommendations.
-Use markdown formatting for readability."""
-
 LANGUAGE_INSTRUCTIONS: dict[str, str] = {
     "en": "You are writing in English. All analysis and output must be in English.",
     "zh-CN": "You are writing in Simplified Chinese (简体中文). All analysis and output must be in Chinese. Use Chinese financial terminology naturally.",
@@ -305,25 +288,113 @@ def _get_market_framing(market_info: dict | None, language: str) -> str:
 
 
 SYNTHESIZE_STRUCTURE: dict[str, str] = {
-    "en": """Structure your analysis with:
-1. **Market Context** — Broader market environment: how major indices are performing, current macro themes (interest rates, inflation, geopolitical factors), and sector-level trends. Connect this to how the overall market backdrop affects this specific asset.
-2. **Overview** — Brief summary of the company and current situation (mention the analysis date)
-3. **Key Metrics Analysis** — What the numbers mean, in the context of the broader market and sector
-4. **Technical Analysis** — Trend and momentum assessment (if data available), relative to market index performance
-5. **Recent News Impact** — How both ticker-specific news AND macro/sector news may affect the asset
-6. **Risks & Opportunities** — Include both company-specific and macro-driven risks
-7. **Outlook** — Short to medium term outlook factoring in market trends
+    "en": """Structure your analysis with the following sections. Use ## headings.
+
+## Key Data Snapshot
+
+Start with a tight summary block. List ONLY numbers from the provided data below — never from your training data:
+
+| Metric | Value |
+|--------|-------|
+| Current Price | (from Market Data — EXACT number, not a range) |
+| Change | (from Market Data) |
+| P/E Ratio | (from Market Data) |
+| 52-Week Range | (from Market Data) |
+| Market Cap | (from Market Data) |
+| Beta | (if available) |
+| Benchmark Index | (index name + current level from Market Data) |
+
+If any metric is NOT in the provided data, write "N/A" — do NOT guess or pull from training data.
+
+## Market Context
+
+Broader market environment: how major indices are performing, current macro themes (interest rates, inflation, geopolitical factors), and sector-level trends. Connect this to how the overall market backdrop affects this specific asset. Use only the macro research and market index data provided.
+
+## Company Overview
+
+Brief summary of the company and current situation. Mention the analysis date shown above.
+
+## Key Metrics Deep Dive
+
+Interpret the valuation, profitability, and growth metrics IN CONTEXT of the company's sector and the broader market. Reference specific numbers from the data.
+
+## Technical Picture (if price history available)
+
+Trend and momentum assessment relative to market index performance. Only include if technical data was collected.
+
+## News & Sentiment
+
+How both ticker-specific news AND macro/sector news may affect the asset. Categorize as positive, negative, or neutral drivers.
+
+## Risks & Opportunities
+
+Both company-specific and macro-driven risks and opportunities. Be balanced.
+
+## Outlook
+
+Short to medium term outlook factoring in market trends, catalysts, and risks.
+
+---
+**IMPORTANT — Data Integrity Rules:**
+- Your knowledge cutoff is before the current date. Training-data prices are STALE. Use ONLY the prices and metrics provided in the data below.
+- Quote specific numbers from the data, not approximate ranges from memory.
+- If the data says the price is $215.30, write "$215.30" — not "around $215" or "$210-$220".
+- If a metric was NOT collected (e.g., no price history), say "Not available" rather than fabricating.
 
 Be objective. Highlight both positives and negatives. Do not give specific buy/sell recommendations.
 Use markdown formatting for readability.""",
-    "zh-CN": """请按以下结构撰写分析报告：
-1. **市场环境** — 整体市场背景：主要指数表现、当前宏观主题（利率、通胀、地缘政治因素）以及行业趋势。将这些宏观背景与目标资产关联分析。
-2. **概述** — 公司及当前情况简要介绍（注明分析日期）
-3. **关键指标分析** — 结合更广泛市场与行业背景解读各项数据
-4. **技术分析** — 趋势与动能评估（如有数据），与市场指数表现对比
-5. **近期新闻影响** — 公司特定新闻及宏观/行业新闻对资产的综合影响
-6. **风险与机遇** — 涵盖公司特定风险及宏观驱动的风险
-7. **展望** — 结合市场趋势的中短期前景
+    "zh-CN": """请按以下结构撰写分析报告，使用 ## 标题。
+
+## 关键数据快照
+
+首先提供核心指标摘要表。只能使用下方提供的数据，禁止使用训练数据中的数字：
+
+| 指标 | 数值 |
+|--------|-------|
+| 当前价格 | (来自市场数据 — 精确数值，非区间) |
+| 涨跌幅 | (来自市场数据) |
+| 市盈率 | (来自市场数据) |
+| 52周范围 | (来自市场数据) |
+| 总市值 | (来自市场数据) |
+| Beta | (如有此数据) |
+| 基准指数 | (指数名称及当前点位，来自市场数据) |
+
+如果某项指标在提供的数据中不存在，写"无数据"——不得从训练数据中猜测。
+
+## 市场环境
+
+整体市场背景：主要指数表现、当前宏观主题（利率、通胀、地缘政治因素）以及行业趋势。将这些宏观背景与目标资产关联分析。仅使用提供的宏观研究和市场指数数据。
+
+## 公司概述
+
+公司及当前情况简要介绍，注明分析日期。
+
+## 关键指标深度分析
+
+结合公司所在行业及更广泛市场背景，解读估值、盈利能力和增长指标。引用数据中的具体数字。
+
+## 技术面分析（如有价格历史数据）
+
+趋势与动能评估，与市场指数表现对比。仅在已收集技术数据时包含此部分。
+
+## 新闻与情绪
+
+公司特定新闻及宏观/行业新闻对资产的综合影响。分类为正面、负面或中性驱动因素。
+
+## 风险与机遇
+
+涵盖公司特定风险及宏观驱动的风险与机遇。保持平衡。
+
+## 展望
+
+结合市场趋势、催化剂和风险的中短期前景。
+
+---
+**重要 — 数据完整性规则：**
+- 你的知识截止日期早于当前日期。训练数据中的价格已过时。只能使用下方提供的数据中的价格和指标。
+- 引用数据中的具体数字，而非记忆中模糊的区间。
+- 如果数据中显示价格为 215.30 元，请写"215.30 元"——而非"约 215 元"或"210-220 元"。
+- 如果某项指标未被收集（如无价格历史数据），请写"无数据"而非编造。
 
 保持客观，同时呈现利好和利空因素。不要给出具体的买入/卖出建议。
 使用 Markdown 格式提升可读性。""",
@@ -342,11 +413,21 @@ def build_synthesize_prompt(symbol: str, enriched_data: str, current_date: str, 
     structure = SYNTHESIZE_STRUCTURE.get(language, SYNTHESIZE_STRUCTURE["en"])
     framing = _get_market_framing(market_info, language)
 
+    anti_hallucination = (
+        "**CRITICAL: Your knowledge cutoff predates {current_date}. "
+        "Any price, P/E, or metric from your training data is STALE and WRONG. "
+        "You MUST use ONLY the data provided below. "
+        "State exact numbers from the data — never estimate ranges from memory. "
+        "If a number isn't in the data, say 'Not collected'.**"
+    ).format(current_date=current_date)
+
     return f"""{instruction}
 
-You are a professional financial analyst. Write a comprehensive analysis of {symbol} based on the data collected below.
+You are a professional financial analyst. Write a comprehensive analysis of {symbol} using ONLY the data collected below. Do not use numbers from your training data.
 
 Today is {current_date}.
+
+{anti_hallucination}
 
 {enriched_data}
 
